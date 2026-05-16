@@ -94,6 +94,7 @@ async function submitLogin(create = false) {
     setLoginMessage(user.created ? `User @${user.username} dibuat.` : `Login sebagai @${user.username}.`, false);
     if (user.created) resetGeneratorForNewUser();
     updateUserUi();
+    await refreshPresetList();
     closeLoginModal();
   } catch (error) {
     setLoginMessage(error.message || 'Login gagal.', true);
@@ -102,6 +103,79 @@ async function submitLogin(create = false) {
   }
 }
 async function loginUser() { openLoginModal(); }
+function setPresetSelectMessage(message) {
+  const select = $('presetSelect');
+  select.innerHTML = `<option value="">${message}</option>`;
+}
+async function refreshPresetList() {
+  if (!currentUser?.id) {
+    setPresetSelectMessage('Login dulu untuk melihat preset');
+    return;
+  }
+  const select = $('presetSelect');
+  select.innerHTML = '<option value="">Loading preset...</option>';
+  try {
+    const res = await fetch(`/api/users/${encodeURIComponent(currentUser.id)}/presets`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal mengambil preset.');
+    const presets = data.presets || [];
+    if (!presets.length) {
+      setPresetSelectMessage('Belum ada preset tersimpan');
+      return;
+    }
+    select.innerHTML = '<option value="">Pilih ID preset...</option>' + presets.map((preset) => {
+      const label = `${preset.id} — ${preset.name || 'Overlay Preset'}`;
+      return `<option value="${preset.id}">${label}</option>`;
+    }).join('');
+  } catch (error) {
+    setPresetSelectMessage(error.message || 'Gagal mengambil preset');
+  }
+}
+function applyPresetConfig(config = {}) {
+  Object.entries(DEFAULT_CONFIG).forEach(([id, fallback]) => {
+    if ($(id)) $(id).value = config[id] ?? fallback;
+  });
+  if ($('youtubeUrl')) $('youtubeUrl').value = config.youtubeUrl || config.videoId || '';
+  $('bubbleBgUpload').value = '';
+  clearDecorations();
+  const decorations = Array.isArray(config.bubbleDecorations) ? config.bubbleDecorations : [];
+  const first = document.querySelector('.decor-item');
+  decorations.forEach((decor, index) => {
+    let item = index === 0 ? first : null;
+    if (!item) {
+      decorCount += 1;
+      $('bubbleDecorList').insertAdjacentHTML('beforeend', decorationTemplate(decorCount));
+      item = $('bubbleDecorList').lastElementChild;
+      bindDynamicControls(item);
+    }
+    item.querySelector('[data-field="image"]').value = decor.image || '';
+    item.querySelector('[data-field="show"]').value = decor.show || '1';
+    item.querySelector('[data-field="position"]').value = decor.position || 'inside-bottom-left';
+    item.querySelector('[data-field="size"]').value = decor.size || '46';
+    item.querySelector('[data-field="opacity"]').value = decor.opacity || '100';
+  });
+  renderPreview();
+  updateGeneratedUrl();
+}
+async function loadSelectedPreset() {
+  const presetId = $('presetSelect').value;
+  if (!presetId) return alert('Pilih ID preset dulu.');
+  $('loadPresetBtn').textContent = 'Loading...';
+  try {
+    const res = await fetch(`/api/presets/${encodeURIComponent(presetId)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Preset gagal dimuat.');
+    applyPresetConfig(data.config || {});
+    const url = `${location.origin}/overlay.html?preset=${encodeURIComponent(data.id)}`;
+    $('resultUrl').value = url;
+    $('openBtn').href = url;
+    $('loadPresetBtn').textContent = 'Loaded!';
+    setTimeout(() => $('loadPresetBtn').textContent = 'Load Preset', 1200);
+  } catch (error) {
+    alert(error.message || 'Preset gagal dimuat.');
+    $('loadPresetBtn').textContent = 'Load Preset';
+  }
+}
 function hexA(hex, op) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${Number(op) / 100})`; }
 function getDecorations() {
   return [...document.querySelectorAll('.decor-item')].map((item) => {
@@ -254,6 +328,9 @@ $('savePresetBtn').addEventListener('click', async () => {
 $('resultUrl').addEventListener('click', () => $('resultUrl').select());
 $('loginSubmitBtn').addEventListener('click', () => submitLogin(false));
 $('loginConfirmBtn').addEventListener('click', () => submitLogin(true));
+$('refreshPresetBtn').addEventListener('click', refreshPresetList);
+$('loadPresetBtn').addEventListener('click', loadSelectedPreset);
+$('presetSelect').addEventListener('change', () => { if ($('presetSelect').value) loadSelectedPreset(); });
 $('loginUsername').addEventListener('input', () => { $('loginConfirmBtn').style.display = 'none'; setLoginMessage(''); });
 $('loginUsername').addEventListener('keydown', (e) => { if (e.key === 'Enter') submitLogin(false); });
 document.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key.toLowerCase() === 'l') { e.preventDefault(); loginUser(); } });

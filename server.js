@@ -8,7 +8,7 @@ const cloudinary = require('cloudinary').v2;
 const { createClient } = require('@libsql/client');
 const { nanoid } = require('nanoid');
 const { Server } = require('socket.io');
-const { LiveChat } = require('@freetube/youtube-chat');
+const { actionToRenderer, parseData, usecToTime } = require('@freetube/youtube-chat/dist/parser');
 
 const app = express();
 const server = http.createServer(app);
@@ -199,23 +199,126 @@ function toPayload(comment) {
     superchat: comment.superchat || null,
   };
 }
+const YOUTUBE_HEADERS = {
+  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'accept-language': 'en-US,en;q=0.9,id;q=0.8',
+};
+
+function extractFirst(html, patterns) {
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) return match[1].replace(/\\u0026/g, '&');
+  }
+  return '';
+}
+
+function extractChatContinuation(html) {
+  return extractFirst(html, [
+    /"continuation"\s*:\s*"([^"]+)"\s*,\s*"clickTrackingParams"\s*:\s*"[^"]+"\s*,\s*"playerSeekContinuationData"/,
+    /"liveChatRenderer"[\s\S]*?"continuation"\s*:\s*"([^"]+)"/,
+    /"reloadContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
+    /"invalidationContinuationData"\s*:\s*\{\s*"continuation"\s*:\s*"([^"]+)"/,
+    /"continuation"\s*:\s*"([^"]+)"/,
+  ]);
+}
+
+async function fetchYoutubeHtml(videoId) {
+  const response = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&bpctr=9999999999&has_verified=1`, {
+    headers: YOUTUBE_HEADERS,
+  });
+  if (!response.ok) throw new Error(`YouTube request gagal (${response.status}).`);
+  return response.text();
+}
+
+async function createLiveChatSession(videoId) {
+  const html = await fetchYoutubeHtml(videoId);
+  const key = extractFirst(html, [/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/]);
+  const clientName = extractFirst(html, [/"clientName"\s*:\s*"([^"]+)"/]) || 'WEB';
+  const clientVersion = extractFirst(html, [/"clientVersion"\s*:\s*"([^"]+)"/]);
+  const continuation = extractChatContinuation(html);
+
+  if (!key || !clientVersion) throw new Error('YouTube config tidak ditemukan. Coba refresh atau cek apakah YouTube memblokir request server.');
+  if (!continuation) {
+    if (/LIVE_STREAM_OFFLINE/.test(html)) throw new Error('Live chat belum tersedia / stream terdeteksi offline oleh YouTube.');
+    throw new Error('Continuation live chat tidak ditemukan. Chat mungkin disabled, member-only, age restricted, atau YouTube mengubah format halaman.');
+  }
+
+  return { key, clientName, clientVersion, continuation, prevTime: Date.now() };
+}
+
+async function fetchLiveChat(room) {
+  const session = room.session;
+  const response = await fetch(`https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key=${encodeURIComponent(session.key)}`, {
+    method: 'POST',
+    headers: { ...YOUTUBE_HEADERS, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      context: { client: { clientName: session.clientName, clientVersion: session.clientVersion } },
+      continuation: session.continuation,
+    }),
+  });
+  if (!response.ok) throw new Error(`Polling chat gagal (${response.status}).`);
+  const data = await response.json();
+  if (data.continuationContents?.messageRenderer) {
+    throw new Error(data.continuationContents.messageRenderer.text?.runs?.map(r => r.text).join('') || 'Live stream selesai.');
+  }
+  const live = data.continuationContents?.liveChatContinuation;
+  if (!live) throw new Error('Response live chat tidak valid.');
+
+  const next = live.continuations?.[0];
+  session.continuation = next?.invalidationContinuationData?.continuation
+    || next?.timedContinuationData?.continuation
+    || next?.reloadContinuationData?.continuation
+    || session.continuation;
+
+  const items = (live.actions || [])
+    .filter((action) => {
+      const renderer = actionToRenderer(action);
+      return renderer && usecToTime(renderer.timestampUsec) > session.prevTime;
+    })
+    .map((action) => parseData(action))
+    .filter(Boolean);
+
+  items.forEach((item) => io.to(room.videoId).emit('chat', toPayload(item)));
+  if (items.length) session.prevTime = items[items.length - 1].timestamp;
+  return next?.timedContinuationData?.timeoutMs || next?.invalidationContinuationData?.timeoutMs || 1000;
+}
+
+function scheduleRoomPoll(room, delay = 1000) {
+  room.pollTimer = setTimeout(async () => {
+    try {
+      const nextDelay = await fetchLiveChat(room);
+      scheduleRoomPoll(room, Math.max(700, Number(nextDelay) || 1000));
+    } catch (error) {
+      room.status = 'error';
+      room.lastError = error?.message || String(error);
+      io.to(room.videoId).emit('status', { status: 'error', message: room.lastError });
+    }
+  }, delay);
+}
+
 function startRoom(videoId) {
   if (rooms.has(videoId)) return rooms.get(videoId);
-  const room = { videoId, clients: 0, liveChat: null, status: 'starting', lastError: '', cleanupTimer: null };
-  const liveChat = new LiveChat({ liveId: videoId });
-  room.liveChat = liveChat;
-  liveChat.on('start', (liveId) => { room.status = 'connected'; room.lastError = ''; io.to(videoId).emit('status', { status: 'connected', videoId: liveId }); });
-  liveChat.on('comment', (comment) => { io.to(videoId).emit('chat', toPayload(comment)); });
-  liveChat.on('error', (error) => { room.status = 'error'; room.lastError = error?.message || String(error); io.to(videoId).emit('status', { status: 'error', message: room.lastError }); });
-  liveChat.on('end', (reason) => { room.status = 'ended'; io.to(videoId).emit('status', { status: 'ended', message: reason || 'Live chat ended' }); rooms.delete(videoId); });
-  liveChat.start().catch((error) => { room.status = 'error'; room.lastError = error?.message || String(error); io.to(videoId).emit('status', { status: 'error', message: room.lastError }); });
+  const room = { videoId, clients: 0, session: null, status: 'starting', lastError: '', cleanupTimer: null, pollTimer: null };
   rooms.set(videoId, room);
+  createLiveChatSession(videoId)
+    .then((session) => {
+      room.session = session;
+      room.status = 'connected';
+      room.lastError = '';
+      io.to(videoId).emit('status', { status: 'connected', videoId });
+      scheduleRoomPoll(room, 300);
+    })
+    .catch((error) => {
+      room.status = 'error';
+      room.lastError = error?.message || String(error);
+      io.to(videoId).emit('status', { status: 'error', message: room.lastError });
+    });
   return room;
 }
 function stopRoom(videoId) {
   const room = rooms.get(videoId);
   if (!room) return;
-  try { room.liveChat?.stop?.(); } catch (_) {}
+  if (room.pollTimer) clearTimeout(room.pollTimer);
   rooms.delete(videoId);
 }
 io.on('connection', (socket) => {
