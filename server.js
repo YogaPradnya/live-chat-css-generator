@@ -97,7 +97,10 @@ app.post('/api/users/login', async (req, res) => {
 
 app.get('/api/users/:id/presets', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const result = await db.execute({ sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets WHERE user_id = ? ORDER BY updated_at DESC LIMIT 50', args: [req.params.id] });
+  const isPublic = req.params.id === 'public';
+  const result = await db.execute(isPublic
+    ? { sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets ORDER BY updated_at DESC LIMIT 100', args: [] }
+    : { sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets WHERE user_id = ? ORDER BY updated_at DESC LIMIT 50', args: [req.params.id] });
   res.json({ presets: result.rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at, url: `/overlay.html?preset=${row.id}` })) });
 });
 
@@ -122,10 +125,16 @@ app.post('/api/presets', async (req, res) => {
   const name = String(req.body?.name || 'Overlay Preset').slice(0, 80);
   const config = req.body?.config;
   if (!config || typeof config !== 'object') return res.status(400).json({ error: 'Config preset tidak valid.' });
-  const userId = String(req.body?.userId || '').trim();
-  if (!userId) return res.status(400).json({ error: 'User ID belum ada. Login dulu tanpa password.' });
-  const user = await db.execute({ sql: 'SELECT id FROM users WHERE id = ?', args: [userId] });
-  if (!user.rows[0]) return res.status(404).json({ error: 'User ID tidak ditemukan. Login ulang.' });
+  let userId = String(req.body?.userId || 'public').trim() || 'public';
+  if (userId === 'public') {
+    await db.execute({
+      sql: 'INSERT OR IGNORE INTO users (id, username, display_name) VALUES (?, ?, ?)',
+      args: ['public', 'public', 'Public'],
+    });
+  } else {
+    const user = await db.execute({ sql: 'SELECT id FROM users WHERE id = ?', args: [userId] });
+    if (!user.rows[0]) return res.status(404).json({ error: 'User ID tidak ditemukan. Login ulang.' });
+  }
   await db.execute({
     sql: 'INSERT INTO overlay_presets (id, user_id, name, config_json) VALUES (?, ?, ?, ?)',
     args: [id, userId, name, JSON.stringify(config)],

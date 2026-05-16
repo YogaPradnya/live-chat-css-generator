@@ -7,7 +7,7 @@ const samples = [
   {author:'User',role:'user',text:'Tinggal copy link ini ke OBS Browser Source.'}
 ];
 let decorCount = 1;
-let currentUser = null;
+let currentUser = { id: 'public', username: 'public', displayName: 'Public' };
 
 const DEFAULT_CONFIG = {
   youtubeUrl: '', fontFamily: 'Imprima', showAvatar: '0',
@@ -254,7 +254,7 @@ function renderPreview() {
   box.innerHTML = samples.map(s => {
     const imgs = decorations.map(bubbleImgHtml).join('');
     const padClass = decorations.some(d => d.position === 'inside-bottom-left') ? ' pad-left' : decorations.some(d => d.position === 'inside-bottom-right') ? ' pad-right' : '';
-    const msg = `<span class="msg${padClass}" style="position:relative;display:block;min-height:${decorations.some(d => d.position.includes('inside')) ? '72px' : 'auto'};font-size:${c.messageSize}px;color:${c.messageColor};border-color:${c.borderColor};border-radius:${c.radius}px">${imgs}<span style="position:relative;z-index:2">${s.text}</span></span>`;
+    const msg = `<span class="msg${padClass}" style="position:relative;display:block;min-height:${decorations.some(d => d.position.includes('inside')) ? '72px' : 'auto'};font-size:${c.messageSize}px;color:${c.messageColor};border-color:${c.borderColor};border-radius:${c.radius}px">${imgs}<span class="message-text" style="position:relative;z-index:2">${s.text}</span></span>`;
     return `<div class="sample ${c.showAvatar === '0' ? 'no-avatar' : ''}">${c.showAvatar === '1' ? '<img src="https://api.dicebear.com/8.x/adventurer/svg?seed=' + encodeURIComponent(s.author) + '" alt="avatar">' : ''}<div class="bubble"><span class="name" style="font-size:${c.nameSize}px;background:${c.nameBg};color:${c[s.role + 'Color'] || c.userColor}">${s.author}</span><div class="bubble-row">${msg}</div></div></div>`;
   }).join('');
   box.querySelectorAll('.msg').forEach(el => applyMessageBackground(el, c));
@@ -337,4 +337,4 @@ document.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key.toLowerCase
 updateUserUi();
 renderPreview();
 updateGeneratedUrl();
-setTimeout(loginUser, 250);
+refreshPresetList();
