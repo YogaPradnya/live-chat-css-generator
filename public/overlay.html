@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OBS YouTube Live Chat Overlay</title>
+  <meta name="description" content="Overlay OBS untuk YouTube live chat realtime dengan desain custom dari generator.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Changa+One&family=Imprima&family=Inter:wght@400;600;800&family=Josefin+Sans:wght@400;700&family=Montserrat:wght@400;700;900&family=Noto+Sans:wght@400;700&family=Open+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/overlay.css">
+</head>
+<body>
+  <main id="overlay" aria-live="polite">
+    <div id="status" class="status">Connecting...</div>
+    <section id="chatList" class="chat-list"></section>
+    <img id="decor" class="decor" alt="Dekorasi chat">
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/overlay.js"></script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YouTube Live Chat CSS Generator untuk OBS</title>
+  <meta name="description" content="Buat link overlay YouTube live chat realtime untuk OBS dengan warna, font, avatar, dan dekorasi custom tanpa menempel CSS manual.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Changa+One&family=Imprima&family=Inter:wght@400;500;600;700;800&family=Josefin+Sans:wght@400;600;700&family=Montserrat:wght@400;600;800&family=Noto+Sans:wght@400;600;700&family=Open+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero" aria-labelledby="title">
+      <h1 id="title">YouTube Live Chat Generator</h1>
+      <p>Buat link overlay chat realtime yang tinggal ditempel ke OBS. Custom warna role, bubble, font, avatar, dan gambar dekorasi tanpa menempel CSS manual.</p>
+    </section>
+
+    <section class="login-modal" id="loginModal" aria-labelledby="loginTitle">
+      <div class="login-card">
+        <div class="login-mark">OBS</div>
+        <h2 id="loginTitle">Login Overlay</h2>
+        <p id="loginText">Masukkan username untuk membuka generator.</p>
+        <label>Username
+          <input id="loginUsername" type="text" autocomplete="username" placeholder="contoh: yoga">
+        </label>
+        <div class="login-confirm" id="loginConfirm"></div>
+        <div class="actions login-actions">
+          <button id="loginSubmitBtn" type="button">Login</button>
+          <button id="loginConfirmBtn" type="button">Buat User Baru</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <form class="panel controls locked-content" id="generatorForm">
+        <h2>Pengaturan Overlay</h2>
+        <label>Link Live YouTube
+          <input id="youtubeUrl" type="text" placeholder="www.youtube.com/live_chat?is_popout=1&v=VIDEO_ID" required>
+        </label>
+        <div class="grid two"> 
+          <label>Font
+            <select id="fontFamily">
+              <option>Imprima</option><option>Changa One</option><option>Inter</option><option>Montserrat</option><option>Josefin Sans</option><option>Noto Sans</option><option>Open Sans</option>
+            </select>
+          </label>
+          <label>Tampilkan Avatar
+            <select id="showAvatar"><option value="1">Ya</option><option value="0">Tidak</option></select>
+          </label>
+        </div>
+        <div class="grid four">
+          <label>Owner <input id="ownerColor" type="color" value="#ffd600"></label>
+          <label>Moderator <input id="moderatorColor" type="color" value="#5eead4"></label>
+          <label>Member <input id="memberColor" type="color" value="#a78bfa"></label>
+          <label>User <input id="userColor" type="color" value="#ffffff"></label>
+        </div>
+        <div class="grid two">
+          <label>Warna Teks Pesan <input id="messageColor" type="color" value="#071952"></label>
+          <label>Background Pesan <input id="messageBg" type="color" value="#ffffff"></label>
+          <label>Background Pengirim Pesan <input id="nameBg" type="color" value="#80b3ff"></label>
+          <label>Border Pesan <input id="borderColor" type="color" value="#525ceb"></label>
+        </div>
+        <div class="grid two">
+          <label>Ukuran Nama <input id="nameSize" type="range" min="14" max="34" value="20"></label>
+          <label>Ukuran Pesan <input id="messageSize" type="range" min="14" max="38" value="24"></label>
+          <label>Radius Bubble <input id="radius" type="range" min="0" max="36" value="19"></label>
+          <label>Opacity Pesan <input id="opacity" type="range" min="35" max="100" value="90"></label>
+        </div>
+        <label>URL Gambar Background Bubble Chat
+          <input id="bubbleBgImage" type="url" placeholder="https://.../background-bubble.png">
+        </label>
+        <label>Upload Background Bubble dari Device
+          <input id="bubbleBgUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+        </label>
+        <div class="grid two">
+          <label>Ukuran Background Bubble
+            <select id="bubbleBgSize"><option value="cover">Cover</option><option value="contain">Contain</option><option value="100% 100%">Stretch</option><option value="auto">Auto</option></select>
+          </label>
+          <label>Posisi Background Bubble
+            <select id="bubbleBgPosition"><option value="center">Center</option><option value="left bottom">Kiri Bawah</option><option value="right bottom">Kanan Bawah</option><option value="left top">Kiri Atas</option><option value="right top">Kanan Atas</option></select>
+          </label>
+          <label>Opacity Background Bubble <input id="bubbleBgOpacity" type="range" min="0" max="100" value="100"></label>
+        </div>
+
+        <div class="bubble-decor-header">
+          <h3>Gambar Dekorasi Bubble</h3>
+          <button id="addBubbleDecorBtn" type="button">+ Tambah Gambar</button>
+        </div>
+        <div id="bubbleDecorList" class="decor-list">
+          <div class="decor-item" data-index="1">
+            <label>URL Gambar Bubble 1
+              <input id="bubbleImage" type="url" placeholder="https://.../stiker.png">
+            </label>
+            <label>Upload Gambar Bubble 1 dari Device
+              <input id="bubbleUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+            </label>
+            <div class="grid two">
+              <label>Tampilkan Gambar Bubble
+                <select id="showBubbleImage"><option value="1">Ya</option><option value="0">Tidak</option></select>
+              </label>
+              <label>Posisi Gambar Bubble
+                <select id="bubbleImagePosition"><option value="inside-bottom-left">Kiri Bawah di Dalam Pesan</option><option value="inside-bottom-right">Kanan Bawah di Dalam Pesan</option><option value="left">Kiri Pesan</option><option value="right">Kanan Pesan</option><option value="top-right">Pojok Kanan Atas</option><option value="bottom-right">Pojok Kanan Bawah</option><option value="bottom-left">Pojok Kiri Bawah</option><option value="top-left">Pojok Kiri Atas</option></select>
+              </label>
+              <label>Ukuran Gambar Bubble <input id="bubbleImageSize" type="range" min="20" max="160" value="46"></label>
+              <label>Opacity Gambar Bubble <input id="bubbleImageOpacity" type="range" min="20" max="100" value="100"></label>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <aside class="panel preview locked-content">
+        <h2>Live Preview</h2>
+        <div class="chat-preview" id="chatPreview"></div>
+        <div class="result">
+          <input id="resultUrl" readonly placeholder="Link overlay akan muncul di sini">
+          <div class="actions">
+            <button id="savePresetBtn" type="button">Save Preset</button>
+            <button id="copyBtn" type="button">Copy</button>
+            <a id="openBtn" href="#" target="_blank" rel="noreferrer">Open Overlay</a>
+          </div>
+        </div>
+      </aside>
+    </section>
+  </main>
+  <script src="/js/generator.js"></script>
+</body>
+</html>
