@@ -254,7 +254,7 @@ async function fetchYoutubeHtml(videoId, retries = 4) {
     const headers = getYoutubeHeaders();
     try {
       const response = await fetch(
-        `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&bpctr=9999999999&has_verified=1`,
+        `https://www.youtube.com/live_chat?v=${encodeURIComponent(videoId)}`,
         { headers }
       );
       if (response.status === 429) {
