@@ -208,10 +208,24 @@ function toPayload(comment) {
     superchat: comment.superchat || null,
   };
 }
-const YOUTUBE_HEADERS = {
-  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'accept-language': 'en-US,en;q=0.9,id;q=0.8',
-};
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0',
+];
+let uaIndex = 0;
+function getYoutubeHeaders() {
+  uaIndex = (uaIndex + 1) % USER_AGENTS.length;
+  return {
+    'user-agent': USER_AGENTS[uaIndex],
+    'accept-language': 'en-US,en;q=0.9,id;q=0.8',
+    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'cache-control': 'no-cache',
+  };
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function extractFirst(html, patterns) {
   for (const pattern of patterns) {
@@ -231,12 +245,29 @@ function extractChatContinuation(html) {
   ]);
 }
 
-async function fetchYoutubeHtml(videoId) {
-  const response = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&bpctr=9999999999&has_verified=1`, {
-    headers: YOUTUBE_HEADERS,
-  });
-  if (!response.ok) throw new Error(`YouTube request gagal (${response.status}).`);
-  return response.text();
+async function fetchYoutubeHtml(videoId, retries = 4) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const headers = getYoutubeHeaders();
+    try {
+      const response = await fetch(
+        `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&bpctr=9999999999&has_verified=1`,
+        { headers }
+      );
+      if (response.status === 429) {
+        const waitMs = Math.min(2000 * Math.pow(2, attempt), 30000);
+        console.warn(`[YouTube] 429 rate limited (attempt ${attempt}/${retries}), retry in ${waitMs}ms...`);
+        if (attempt < retries) { await sleep(waitMs); continue; }
+        throw new Error('YouTube membatasi request server (429). Coba lagi dalam beberapa menit.');
+      }
+      if (!response.ok) throw new Error(`YouTube request gagal (${response.status}).`);
+      return response.text();
+    } catch (err) {
+      if (attempt >= retries) throw err;
+      const waitMs = 1500 * attempt;
+      console.warn(`[YouTube] Fetch error attempt ${attempt}: ${err.message}, retry in ${waitMs}ms`);
+      await sleep(waitMs);
+    }
+  }
 }
 
 async function createLiveChatSession(videoId) {
@@ -259,12 +290,20 @@ async function fetchLiveChat(room) {
   const session = room.session;
   const response = await fetch(`https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key=${encodeURIComponent(session.key)}`, {
     method: 'POST',
-    headers: { ...YOUTUBE_HEADERS, 'content-type': 'application/json' },
+    headers: { ...getYoutubeHeaders(), 'content-type': 'application/json' },
     body: JSON.stringify({
       context: { client: { clientName: session.clientName, clientVersion: session.clientVersion } },
       continuation: session.continuation,
     }),
   });
+  if (response.status === 429) {
+    console.warn(`[YouTube] Polling 429 untuk ${room.videoId}, tunggu 15 detik lalu reconnect...`);
+    await sleep(15000);
+    // Reconnect session
+    const newSession = await createLiveChatSession(room.videoId);
+    room.session = newSession;
+    return 2000;
+  }
   if (!response.ok) throw new Error(`Polling chat gagal (${response.status}).`);
   const data = await response.json();
   if (data.continuationContents?.messageRenderer) {
@@ -294,13 +333,25 @@ async function fetchLiveChat(room) {
 
 function scheduleRoomPoll(room, delay = 1000) {
   room.pollTimer = setTimeout(async () => {
+    if (!rooms.has(room.videoId)) return; // room sudah di-stop
     try {
       const nextDelay = await fetchLiveChat(room);
-      scheduleRoomPoll(room, Math.max(700, Number(nextDelay) || 1000));
+      scheduleRoomPoll(room, Math.max(1000, Number(nextDelay) || 1000));
     } catch (error) {
-      room.status = 'error';
-      room.lastError = error?.message || String(error);
-      io.to(room.videoId).emit('status', { status: 'error', message: room.lastError });
+      const msg = error?.message || String(error);
+      // Coba auto-reconnect untuk error jaringan, bukan error permanen
+      const isRetryable = /fetch|network|econnreset|etimedout|socket/i.test(msg);
+      if (isRetryable && room.retryCount < 5) {
+        room.retryCount = (room.retryCount || 0) + 1;
+        const backoff = Math.min(3000 * room.retryCount, 20000);
+        console.warn(`[Room ${room.videoId}] Error retryable, reconnect ke-${room.retryCount} dalam ${backoff}ms: ${msg}`);
+        io.to(room.videoId).emit('status', { status: 'reconnecting', message: `Reconnecting... (${room.retryCount}/5)` });
+        scheduleRoomPoll(room, backoff);
+      } else {
+        room.status = 'error';
+        room.lastError = msg;
+        io.to(room.videoId).emit('status', { status: 'error', message: room.lastError });
+      }
     }
   }, delay);
 }
