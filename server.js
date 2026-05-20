@@ -218,12 +218,16 @@ const USER_AGENTS = [
 let uaIndex = 0;
 function getYoutubeHeaders() {
   uaIndex = (uaIndex + 1) % USER_AGENTS.length;
-  return {
+  const headers = {
     'user-agent': USER_AGENTS[uaIndex],
     'accept-language': 'en-US,en;q=0.9,id;q=0.8',
     'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'cache-control': 'no-cache',
   };
+  if (process.env.YOUTUBE_COOKIE) {
+    headers['cookie'] = process.env.YOUTUBE_COOKIE;
+  }
+  return headers;
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
