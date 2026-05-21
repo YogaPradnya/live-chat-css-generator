@@ -163,6 +163,20 @@ app.put('/api/presets/:id', async (req, res) => {
   res.json({ id: req.params.id, name, url: `/overlay.html?preset=${req.params.id}` });
 });
 
+app.delete('/api/presets/:id', async (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
+  const result = await db.execute({ sql: 'DELETE FROM overlay_presets WHERE id = ?', args: [req.params.id] });
+  if (!result.rowsAffected) return res.status(404).json({ error: 'Preset tidak ditemukan.' });
+  res.json({ ok: true });
+});
+
+app.get('/api/presets', async (req, res) => {
+  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
+  const result = await db.execute({ sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets ORDER BY updated_at DESC LIMIT 100', args: [] });
+  res.json({ presets: result.rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at, url: '/overlay.html?preset=' + row.id })) });
+});
+
+
 const rooms = new Map();
 
 function normalizeVideoId(input = '') {

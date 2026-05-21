@@ -17,24 +17,36 @@
       <p>Buat link overlay chat realtime yang tinggal ditempel ke OBS. Custom warna role, bubble, font, avatar, dan gambar dekorasi tanpa menempel CSS manual.</p>
     </section>
 
-    <section class="login-modal" id="loginModal" aria-labelledby="loginTitle">
-      <div class="login-card">
-        <div class="login-mark">OBS</div>
-        <h2 id="loginTitle">Login Overlay</h2>
-        <p id="loginText">Masukkan username untuk membuka generator.</p>
-        <label>Username
-          <input id="loginUsername" type="text" autocomplete="username" placeholder="contoh: yoga">
+    <!-- Modal: Nama Preset -->
+    <div class="preset-name-modal" id="presetNameModal" role="dialog" aria-modal="true" aria-labelledby="presetModalTitle">
+      <div class="preset-name-card">
+        <h2 id="presetModalTitle">Simpan Preset</h2>
+        <p>Beri nama preset ini agar mudah diingat.</p>
+        <label for="presetNameInput">Nama Preset
+          <input id="presetNameInput" type="text" placeholder="Contoh: Overlay Biru Keren" maxlength="80" autocomplete="off">
         </label>
-        <div class="login-confirm" id="loginConfirm"></div>
-        <div class="actions login-actions">
-          <button id="loginSubmitBtn" type="button">Login</button>
-          <button id="loginConfirmBtn" type="button">Buat User Baru</button>
+        <div id="presetNameError" class="preset-name-error"></div>
+        <div class="actions">
+          <button id="presetNameCancelBtn" type="button" class="btn-ghost">Batal</button>
+          <button id="presetNameSaveBtn" type="button">Simpan</button>
         </div>
       </div>
-    </section>
+    </div>
+
+    <!-- Modal: Konfirmasi Hapus -->
+    <div class="preset-name-modal" id="deleteConfirmModal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+      <div class="preset-name-card">
+        <h2 id="deleteModalTitle">Hapus Preset</h2>
+        <p id="deleteConfirmText">Apakah kamu yakin ingin menghapus preset ini? Tindakan ini tidak bisa dibatalkan.</p>
+        <div class="actions">
+          <button id="deleteCancelBtn" type="button" class="btn-ghost">Batal</button>
+          <button id="deleteConfirmBtn" type="button" class="btn-danger">Hapus</button>
+        </div>
+      </div>
+    </div>
 
     <section class="workspace">
-      <form class="panel controls locked-content" id="generatorForm">
+      <form class="panel controls" id="generatorForm">
         <h2>Pengaturan Overlay</h2>
         <label>Link Live YouTube
           <input id="youtubeUrl" type="text" placeholder="www.youtube.com/live_chat?is_popout=1&v=VIDEO_ID" required>
@@ -47,6 +59,14 @@
           </label>
           <label>Tampilkan Avatar
             <select id="showAvatar"><option value="1">Ya</option><option value="0">Tidak</option></select>
+          </label>
+        </div>
+        <div class="grid two">
+          <label>Posisi Avatar
+            <select id="avatarSide"><option value="left">Kiri</option><option value="right">Kanan</option></select>
+          </label>
+          <label>Geser Avatar (offset)
+            <input id="avatarOffset" type="range" min="-120" max="120" value="0">
           </label>
         </div>
         <div class="grid four">
@@ -66,6 +86,11 @@
           <label>Ukuran Pesan <input id="messageSize" type="range" min="14" max="38" value="24"></label>
           <label>Radius Bubble <input id="radius" type="range" min="0" max="36" value="19"></label>
           <label>Opacity Pesan <input id="opacity" type="range" min="35" max="100" value="90"></label>
+        </div>
+        <div class="grid two">
+          <label>Lebar Max Bubble (px) <input id="bubbleMaxWidth" type="range" min="200" max="1200" value="760"></label>
+          <label>Lebar Area Chat (%) <input id="chatWidth" type="range" min="20" max="100" value="78"></label>
+          <label>Tinggi Area Chat (%) <input id="chatHeight" type="range" min="20" max="100" value="100"></label>
         </div>
         <label>URL Gambar Background Bubble Chat
           <input id="bubbleBgImage" type="url" placeholder="https://.../background-bubble.png">
@@ -109,25 +134,29 @@
         </div>
       </form>
 
-      <aside class="panel preview locked-content">
+      <aside class="panel preview">
         <h2>Live Preview</h2>
         <div class="chat-preview" id="chatPreview"></div>
         <div class="result">
           <input id="resultUrl" readonly placeholder="Link overlay akan muncul di sini">
           <div class="actions">
             <button id="savePresetBtn" type="button">Save Preset</button>
-            <button id="copyBtn" type="button">Copy</button>
+            <button id="copyBtn" type="button">Copy Link</button>
             <a id="openBtn" href="#" target="_blank" rel="noreferrer">Open Overlay</a>
           </div>
-          <div class="preset-loader">
-            <label>Load Preset dari Database
-              <select id="presetSelect">
-                <option value="">Login dulu untuk melihat preset</option>
-              </select>
-            </label>
+
+          <div class="preset-manager">
+            <div class="preset-manager-header">
+              <span class="preset-manager-title">Kelola Preset</span>
+              <button id="refreshPresetBtn" type="button" class="btn-refresh">Refresh</button>
+            </div>
+            <select id="presetSelect">
+              <option value="">Pilih preset...</option>
+            </select>
             <div class="actions preset-actions">
-              <button id="refreshPresetBtn" type="button">Refresh Preset</button>
-              <button id="loadPresetBtn" type="button">Load Preset</button>
+              <button id="loadPresetBtn" type="button">Load</button>
+              <button id="updatePresetBtn" type="button" class="btn-warning">Update</button>
+              <button id="deletePresetBtn" type="button" class="btn-danger">Hapus</button>
             </div>
           </div>
         </div>

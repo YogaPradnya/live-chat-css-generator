@@ -9,6 +9,12 @@ function applyGlobalConfig() {
   roleColors = { owner: config.ownerColor || '#ffd600', moderator: config.moderatorColor || '#5eead4', member: config.memberColor || '#a78bfa', user: config.userColor || '#ffffff' };
   document.body.style.fontFamily = config.fontFamily || 'Imprima';
   document.body.classList.toggle('no-avatar', config.showAvatar === '0');
+  document.body.classList.toggle('avatar-right', config.avatarSide === 'right');
+  const offset = Number(config.avatarOffset || 0);
+  document.body.style.setProperty('--avatar-offset', `${offset}px`);
+  document.body.style.setProperty('--chat-width', `${Number(config.chatWidth || 78)}vw`);
+  document.body.style.setProperty('--chat-height', `${Number(config.chatHeight || 100)}vh`);
+  document.body.style.setProperty('--bubble-max-width', `${Number(config.bubbleMaxWidth || 760)}px`);
 }
 
 function setStatus(text, hide = false) {
@@ -57,7 +63,11 @@ function addMessage(msg) {
   const decos = decorations();
   const imgs = decos.map(bubbleImageHtml).join('');
   const padClass = decos.some(d => d.position === 'inside-bottom-left') ? ' pad-left' : decos.some(d => d.position === 'inside-bottom-right') ? ' pad-right' : '';
-  item.innerHTML = `<img class="avatar" src="${escapeHtml(avatar)}" alt=""><div class="content"><span class="author">${escapeHtml(msg.author || 'Unknown')}</span><div class="bubble-row"><span class="message${padClass}">${imgs}<span class="message-text">${renderParts(msg.parts, msg.text)}</span></span></div></div>`;
+  const avatarHtml = `<img class="avatar" src="${escapeHtml(avatar)}" alt="">`;
+  const contentHtml = `<div class="content"><span class="author">${escapeHtml(msg.author || 'Unknown')}</span><div class="bubble-row"><span class="message${padClass}">${imgs}<span class="message-text">${renderParts(msg.parts, msg.text)}</span></span></div></div>`;
+  const avatarOnRight = config.avatarSide === 'right';
+  item.innerHTML = avatarOnRight ? `${contentHtml}${avatarHtml}` : `${avatarHtml}${contentHtml}`;
+  if (avatarOnRight) item.classList.add('avatar-right');
   const author = item.querySelector('.author');
   const message = item.querySelector('.message');
   author.style.background = config.nameBg || '#80b3ff';
