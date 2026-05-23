@@ -2,254 +2,42 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
-const cloudinary = require('cloudinary').v2;
-const { createClient } = require('@libsql/client');
-const { nanoid } = require('nanoid');
 const { Server } = require('socket.io');
 const { actionToRenderer, parseData, usecToTime } = require('@freetube/youtube-chat/dist/parser');
+
+const { db, hasTurso, initDb } = require('./src/db');
+const { hasCloudinary, router: uploadRouter } = require('./src/routes/upload');
+const presetsRouter = require('./src/routes/presets');
+const usersRouter = require('./src/routes/users');
+const { sanitizePresetId, presetUrl } = require('./src/validation');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 const PORT = process.env.PORT || 3000;
 
-const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const hasCloudinary = Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
-const hasTurso = Boolean(process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN);
-const db = hasTurso ? createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }) : null;
-
-if (hasCloudinary) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-    secure: true,
-  });
-}
-
-async function initDb() {
-  if (!db) return;
-  await db.execute(`CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT UNIQUE,
-    display_name TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`);
-  await db.execute(`CREATE TABLE IF NOT EXISTS overlay_presets (
-    id TEXT PRIMARY KEY,
-    user_id TEXT,
-    name TEXT NOT NULL DEFAULT 'Untitled Preset',
-    config_json TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )`);
-  try { await db.execute('ALTER TABLE overlay_presets ADD COLUMN user_id TEXT'); } catch (_) {}
-  try { await db.execute('ALTER TABLE users ADD COLUMN username TEXT'); } catch (_) {}
-  try { await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)'); } catch (_) {}
-}
 initDb().catch((error) => console.error('Turso init error:', error.message));
-
-const storage = multer.diskStorage({
-  destination: (_, __, cb) => cb(null, UPLOAD_DIR),
-  filename: (_, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.png';
-    cb(null, `${Date.now()}-${Math.random().toString(16).slice(2)}${ext}`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_, file, cb) => {
-    if (/^image\/(png|jpe?g|gif|webp|svg\+xml)$/.test(file.mimetype)) cb(null, true);
-    else cb(new Error('File harus berupa gambar png, jpg, gif, webp, atau svg.'));
-  },
-});
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const PRESET_CONFIG_FIELDS = new Set([
-  'youtubeUrl', 'videoId', 'fontFamily', 'showAvatar', 'avatarSide', 'avatarOffset',
-  'ownerColor', 'moderatorColor', 'memberColor', 'userColor', 'messageColor', 'messageBg',
-  'nameBg', 'borderColor', 'nameSize', 'messageSize', 'radius', 'opacity',
-  'bubbleMaxWidth', 'chatWidth', 'chatHeight', 'bubbleBgImage', 'bubbleBgSize',
-  'bubbleBgPosition', 'bubbleBgOpacity', 'bubbleDecorations',
-]);
-const COLOR_CONFIG_FIELDS = new Set(['ownerColor', 'moderatorColor', 'memberColor', 'userColor', 'messageColor', 'messageBg', 'nameBg', 'borderColor']);
-const NUMBER_CONFIG_LIMITS = {
-  avatarOffset: [-120, 120], nameSize: [14, 34], messageSize: [14, 38], radius: [0, 36],
-  opacity: [35, 100], bubbleMaxWidth: [200, 2000], chatWidth: [20, 160], chatHeight: [20, 160], bubbleBgOpacity: [0, 100],
-};
+app.use('/api/users', usersRouter);
+app.use('/api/upload', uploadRouter);
+app.use('/api/presets', presetsRouter);
 
-function presetUrl(id) { return `/overlay.html?preset=${encodeURIComponent(id)}`; }
-function shortPresetUrl(id) { return `/o/${encodeURIComponent(id)}`; }
-function sanitizePresetId(value) { return String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32); }
-function normalizePresetName(value) {
-  const name = String(value || 'Overlay Preset').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 80);
-  return name || 'Overlay Preset';
-}
-function clampStringNumber(value, min, max) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return undefined;
-  return String(Math.min(max, Math.max(min, number)));
-}
-function normalizePresetConfig(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const config = {};
-  for (const [key, rawValue] of Object.entries(input)) {
-    if (!PRESET_CONFIG_FIELDS.has(key)) continue;
-    if (key === 'bubbleDecorations') {
-      const decorations = Array.isArray(rawValue) ? rawValue : [];
-      config.bubbleDecorations = decorations.slice(0, 8).map((decor) => ({
-        image: String(decor?.image || '').trim().slice(0, 1200),
-        show: decor?.show === '0' ? '0' : '1',
-        position: String(decor?.position || 'inside-bottom-left').replace(/[^a-z-]/g, '').slice(0, 40) || 'inside-bottom-left',
-        size: clampStringNumber(decor?.size, 20, 160) || '46',
-        opacity: clampStringNumber(decor?.opacity, 0, 100) || '100',
-      })).filter((decor) => decor.image);
-      continue;
-    }
-    if (COLOR_CONFIG_FIELDS.has(key)) {
-      const color = String(rawValue || '').trim();
-      if (/^#[0-9a-f]{6}$/i.test(color)) config[key] = color;
-      continue;
-    }
-    if (NUMBER_CONFIG_LIMITS[key]) {
-      const [min, max] = NUMBER_CONFIG_LIMITS[key];
-      const value = clampStringNumber(rawValue, min, max);
-      if (value !== undefined) config[key] = value;
-      continue;
-    }
-    config[key] = String(rawValue ?? '').trim().slice(0, 1200);
+app.get('/o/:idOrSlug', async (req, res) => {
+  const raw = String(req.params.idOrSlug || '').trim().slice(0, 40);
+  if (!raw) return res.status(400).send('ID tidak valid.');
+  if (db) {
+    const bySlug = await db.execute({ sql: 'SELECT id FROM overlay_presets WHERE slug = ?', args: [raw] });
+    if (bySlug.rows[0]) return res.redirect(302, presetUrl(bySlug.rows[0].id));
   }
-  if (config.videoId && !/^[\w-]{11}$/.test(config.videoId)) return null;
-  return config;
-}
-
-app.get('/api/users/check/:username', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const username = String(req.params.username || '').trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '').slice(0, 32);
-  if (!username || username.length < 3) return res.status(400).json({ error: 'Username minimal 3 karakter.' });
-  const found = await db.execute({ sql: 'SELECT username, display_name FROM users WHERE username = ?', args: [username] });
-  res.json({ exists: Boolean(found.rows[0]), username, displayName: found.rows[0]?.display_name || '' });
-});
-
-app.post('/api/users/login', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const rawName = String(req.body?.username || req.body?.displayName || '').trim();
-  const username = rawName.toLowerCase().replace(/[^a-z0-9_.-]/g, '').slice(0, 32);
-  if (!username || username.length < 3) return res.status(400).json({ error: 'Username minimal 3 karakter. Gunakan huruf/angka.' });
-  const displayName = rawName.slice(0, 50) || username;
-  const found = await db.execute({ sql: 'SELECT id, display_name, username FROM users WHERE username = ?', args: [username] });
-  if (found.rows[0]) return res.json({ id: found.rows[0].id, username: found.rows[0].username, displayName: found.rows[0].display_name, created: false });
-  if (!req.body?.create) return res.status(404).json({ error: 'Username belum ada.', needConfirm: true, username });
-  const id = `usr_${nanoid(10)}`;
-  await db.execute({ sql: 'INSERT INTO users (id, username, display_name) VALUES (?, ?, ?)', args: [id, username, displayName] });
-  res.json({ id, username, displayName, created: true });
-});
-
-app.get('/api/users/:id/presets', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const userId = sanitizePresetId(req.params.id);
-  if (!userId) return res.status(400).json({ error: 'User ID tidak valid.' });
-  const isPublic = userId === 'public';
-  const result = await db.execute(isPublic
-    ? { sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets ORDER BY updated_at DESC LIMIT 100', args: [] }
-    : { sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets WHERE user_id = ? ORDER BY updated_at DESC LIMIT 50', args: [userId] });
-  res.json({ presets: result.rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at, url: presetUrl(row.id), shortUrl: shortPresetUrl(row.id) })) });
-});
-
-app.post('/api/upload', upload.single('image'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'File gambar tidak ditemukan.' });
-  if (!hasCloudinary) return res.json({ url: `/uploads/${req.file.filename}`, storage: 'local' });
-  try {
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: process.env.CLOUDINARY_FOLDER || 'live-chat-generator',
-      resource_type: 'image',
-    });
-    fs.unlink(req.file.path, () => {});
-    res.json({ url: result.secure_url, publicId: result.public_id, storage: 'cloudinary' });
-  } catch (error) {
-    fs.unlink(req.file.path, () => {});
-    res.status(500).json({ error: error.message || 'Upload Cloudinary gagal.' });
-  }
-});
-
-app.post('/api/presets', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi. Isi TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN di .env.' });
-  const id = nanoid(10);
-  const name = normalizePresetName(req.body?.name);
-  const config = normalizePresetConfig(req.body?.config);
-  if (!config) return res.status(400).json({ error: 'Config preset tidak valid.' });
-  let userId = sanitizePresetId(req.body?.userId || 'public') || 'public';
-  if (userId === 'public') {
-    await db.execute({
-      sql: 'INSERT OR IGNORE INTO users (id, username, display_name) VALUES (?, ?, ?)',
-      args: ['public', 'public', 'Public'],
-    });
-  } else {
-    const user = await db.execute({ sql: 'SELECT id FROM users WHERE id = ?', args: [userId] });
-    if (!user.rows[0]) return res.status(404).json({ error: 'User ID tidak ditemukan. Login ulang.' });
-  }
-  await db.execute({
-    sql: 'INSERT INTO overlay_presets (id, user_id, name, config_json) VALUES (?, ?, ?, ?)',
-    args: [id, userId, name, JSON.stringify(config)],
-  });
-  res.json({ id, name, url: presetUrl(id), shortUrl: shortPresetUrl(id) });
-});
-
-app.get('/api/presets/:id', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const presetId = sanitizePresetId(req.params.id);
-  if (!presetId) return res.status(400).json({ error: 'Preset ID tidak valid.' });
-  const result = await db.execute({ sql: 'SELECT id, name, config_json, created_at, updated_at FROM overlay_presets WHERE id = ?', args: [presetId] });
-  const row = result.rows[0];
-  if (!row) return res.status(404).json({ error: 'Preset tidak ditemukan.' });
-  res.json({ id: row.id, name: row.name, config: JSON.parse(row.config_json), createdAt: row.created_at, updatedAt: row.updated_at, url: presetUrl(row.id), shortUrl: shortPresetUrl(row.id) });
-});
-
-app.put('/api/presets/:id', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const presetId = sanitizePresetId(req.params.id);
-  if (!presetId) return res.status(400).json({ error: 'Preset ID tidak valid.' });
-  const config = normalizePresetConfig(req.body?.config);
-  if (!config) return res.status(400).json({ error: 'Config preset tidak valid.' });
-  const name = normalizePresetName(req.body?.name);
-  const result = await db.execute({
-    sql: 'UPDATE overlay_presets SET name = ?, config_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-    args: [name, JSON.stringify(config), presetId],
-  });
-  if (!result.rowsAffected) return res.status(404).json({ error: 'Preset tidak ditemukan.' });
-  res.json({ id: presetId, name, url: presetUrl(presetId), shortUrl: shortPresetUrl(presetId) });
-});
-
-app.delete('/api/presets/:id', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const presetId = sanitizePresetId(req.params.id);
-  if (!presetId) return res.status(400).json({ error: 'Preset ID tidak valid.' });
-  const result = await db.execute({ sql: 'DELETE FROM overlay_presets WHERE id = ?', args: [presetId] });
-  if (!result.rowsAffected) return res.status(404).json({ error: 'Preset tidak ditemukan.' });
-  res.json({ ok: true });
-});
-
-app.get('/api/presets', async (req, res) => {
-  if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const result = await db.execute({ sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets ORDER BY updated_at DESC LIMIT 100', args: [] });
-  res.json({ presets: result.rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at, url: presetUrl(row.id), shortUrl: shortPresetUrl(row.id) })) });
-});
-
-app.get('/o/:id', (req, res) => {
-  const presetId = sanitizePresetId(req.params.id);
+  const presetId = sanitizePresetId(raw);
   if (!presetId) return res.status(400).send('Preset ID tidak valid.');
   res.redirect(302, presetUrl(presetId));
 });
 
-
+// YouTube live chat
 const rooms = new Map();
 
 function normalizeVideoId(input = '') {
@@ -311,9 +99,7 @@ function getYoutubeHeaders() {
     'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'cache-control': 'no-cache',
   };
-  if (process.env.YOUTUBE_COOKIE) {
-    headers['cookie'] = process.env.YOUTUBE_COOKIE;
-  }
+  if (process.env.YOUTUBE_COOKIE) headers['cookie'] = process.env.YOUTUBE_COOKIE;
   return headers;
 }
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -340,10 +126,7 @@ async function fetchYoutubeHtml(videoId, retries = 4) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     const headers = getYoutubeHeaders();
     try {
-      const response = await fetch(
-        `https://www.youtube.com/live_chat?v=${encodeURIComponent(videoId)}`,
-        { headers }
-      );
+      const response = await fetch(`https://www.youtube.com/live_chat?v=${encodeURIComponent(videoId)}`, { headers });
       if (response.status === 429) {
         const waitMs = Math.min(2000 * Math.pow(2, attempt), 30000);
         console.warn(`[YouTube] 429 rate limited (attempt ${attempt}/${retries}), retry in ${waitMs}ms...`);
@@ -367,13 +150,11 @@ async function createLiveChatSession(videoId) {
   const clientName = extractFirst(html, [/"clientName"\s*:\s*"([^"]+)"/]) || 'WEB';
   const clientVersion = extractFirst(html, [/"clientVersion"\s*:\s*"([^"]+)"/]);
   const continuation = extractChatContinuation(html);
-
-  if (!key || !clientVersion) throw new Error('YouTube config tidak ditemukan. Coba refresh atau cek apakah YouTube memblokir request server.');
+  if (!key || !clientVersion) throw new Error('YouTube config tidak ditemukan.');
   if (!continuation) {
-    if (/LIVE_STREAM_OFFLINE/.test(html)) throw new Error('Live chat belum tersedia / stream terdeteksi offline oleh YouTube.');
-    throw new Error('Continuation live chat tidak ditemukan. Chat mungkin disabled, member-only, age restricted, atau YouTube mengubah format halaman.');
+    if (/LIVE_STREAM_OFFLINE/.test(html)) throw new Error('Live chat belum tersedia / stream offline.');
+    throw new Error('Continuation live chat tidak ditemukan.');
   }
-
   return { key, clientName, clientVersion, continuation, prevTime: Date.now() };
 }
 
@@ -388,11 +169,9 @@ async function fetchLiveChat(room) {
     }),
   });
   if (response.status === 429) {
-    console.warn(`[YouTube] Polling 429 untuk ${room.videoId}, tunggu 15 detik lalu reconnect...`);
+    console.warn(`[YouTube] Polling 429 untuk ${room.videoId}, tunggu 15 detik...`);
     await sleep(15000);
-    // Reconnect session
-    const newSession = await createLiveChatSession(room.videoId);
-    room.session = newSession;
+    room.session = await createLiveChatSession(room.videoId);
     return 2000;
   }
   if (!response.ok) throw new Error(`Polling chat gagal (${response.status}).`);
@@ -402,21 +181,14 @@ async function fetchLiveChat(room) {
   }
   const live = data.continuationContents?.liveChatContinuation;
   if (!live) throw new Error('Response live chat tidak valid.');
-
   const next = live.continuations?.[0];
   session.continuation = next?.invalidationContinuationData?.continuation
     || next?.timedContinuationData?.continuation
     || next?.reloadContinuationData?.continuation
     || session.continuation;
-
   const items = (live.actions || [])
-    .filter((action) => {
-      const renderer = actionToRenderer(action);
-      return renderer && usecToTime(renderer.timestampUsec) > session.prevTime;
-    })
-    .map((action) => parseData(action))
-    .filter(Boolean);
-
+    .filter((action) => { const r = actionToRenderer(action); return r && usecToTime(r.timestampUsec) > session.prevTime; })
+    .map((action) => parseData(action)).filter(Boolean);
   items.forEach((item) => io.to(room.videoId).emit('chat', toPayload(item)));
   if (items.length) session.prevTime = items[items.length - 1].timestamp;
   return next?.timedContinuationData?.timeoutMs || next?.invalidationContinuationData?.timeoutMs || 1000;
@@ -424,18 +196,16 @@ async function fetchLiveChat(room) {
 
 function scheduleRoomPoll(room, delay = 1000) {
   room.pollTimer = setTimeout(async () => {
-    if (!rooms.has(room.videoId)) return; // room sudah di-stop
+    if (!rooms.has(room.videoId)) return;
     try {
       const nextDelay = await fetchLiveChat(room);
       scheduleRoomPoll(room, Math.max(1000, Number(nextDelay) || 1000));
     } catch (error) {
       const msg = error?.message || String(error);
-      // Coba auto-reconnect untuk error jaringan, bukan error permanen
       const isRetryable = /fetch|network|econnreset|etimedout|socket/i.test(msg);
       if (isRetryable && room.retryCount < 5) {
         room.retryCount = (room.retryCount || 0) + 1;
         const backoff = Math.min(3000 * room.retryCount, 20000);
-        console.warn(`[Room ${room.videoId}] Error retryable, reconnect ke-${room.retryCount} dalam ${backoff}ms: ${msg}`);
         io.to(room.videoId).emit('status', { status: 'reconnecting', message: `Reconnecting... (${room.retryCount}/5)` });
         scheduleRoomPoll(room, backoff);
       } else {
@@ -453,15 +223,12 @@ function startRoom(videoId) {
   rooms.set(videoId, room);
   createLiveChatSession(videoId)
     .then((session) => {
-      room.session = session;
-      room.status = 'connected';
-      room.lastError = '';
+      room.session = session; room.status = 'connected'; room.lastError = '';
       io.to(videoId).emit('status', { status: 'connected', videoId });
       scheduleRoomPoll(room, 300);
     })
     .catch((error) => {
-      room.status = 'error';
-      room.lastError = error?.message || String(error);
+      room.status = 'error'; room.lastError = error?.message || String(error);
       io.to(videoId).emit('status', { status: 'error', message: room.lastError });
     });
   return room;

@@ -15,6 +15,8 @@ function applyGlobalConfig() {
   document.body.style.setProperty('--chat-width', `${Number(config.chatWidth || 78)}vw`);
   document.body.style.setProperty('--chat-height', `${Number(config.chatHeight || 100)}vh`);
   document.body.style.setProperty('--bubble-max-width', `${Number(config.bubbleMaxWidth || 760)}px`);
+  document.body.dataset.position = config.chatPosition || 'bottom-left';
+  document.body.dataset.animation = config.animationStyle || 'pop';
 }
 
 function setStatus(text, hide = false) {
@@ -24,18 +26,15 @@ function setStatus(text, hide = false) {
 
 function renderParts(parts, fallback) {
   if (!Array.isArray(parts) || !parts.length) return escapeHtml(fallback || '');
-  return parts.map((part) => part.type === 'image'
-    ? `<img class="emoji" src="${escapeHtml(part.url)}" alt="${escapeHtml(part.alt)}">`
-    : escapeHtml(part.text || '')).join('');
+  return parts.map((p) => p.type === 'image'
+    ? `<img class="emoji" src="${escapeHtml(p.url)}" alt="${escapeHtml(p.alt)}">`
+    : escapeHtml(p.text || '')).join('');
 }
 
-function bubbleImageHtml(decor) {
-  const src = escapeHtml(decor.image || '');
+function bubbleImageHtml(d) {
+  const src = escapeHtml(d.image || '');
   if (!src) return '';
-  const size = Number(decor.size || 46);
-  const opacity = Number(decor.opacity || 100) / 100;
-  const pos = escapeHtml(decor.position || 'inside-bottom-left');
-  return `<img class="bubble-img bubble-img-${pos}" src="${src}" alt="" style="width:${size}px;height:${size}px;opacity:${opacity}">`;
+  return `<img class="bubble-img bubble-img-${escapeHtml(d.position || 'inside-bottom-left')}" src="${src}" alt="" style="width:${Number(d.size || 46)}px;height:${Number(d.size || 46)}px;opacity:${Number(d.opacity || 100) / 100}">`;
 }
 
 function applyMessageBackground(message) {
@@ -51,11 +50,11 @@ function addMessage(msg) {
   const item = document.createElement('article');
   item.className = `chat-item role-${escapeHtml(msg.role || 'user')}`;
   const avatar = msg.avatar || `https://api.dicebear.com/8.x/adventurer/svg?seed=${encodeURIComponent(msg.author || 'user')}`;
-  const decos = config.bubbleDecorations.filter((decor) => decor.show === '1' && decor.image);
+  const decos = config.bubbleDecorations.filter((d) => d.show === '1' && d.image);
   const imgs = decos.map(bubbleImageHtml).join('');
-  const padClass = decos.some((decor) => decor.position === 'inside-bottom-left') ? ' pad-left' : decos.some((decor) => decor.position === 'inside-bottom-right') ? ' pad-right' : '';
+  const pad = decos.some((d) => d.position === 'inside-bottom-left') ? ' pad-left' : decos.some((d) => d.position === 'inside-bottom-right') ? ' pad-right' : '';
   const avatarHtml = `<img class="avatar" src="${escapeHtml(avatar)}" alt="">`;
-  const contentHtml = `<div class="content"><span class="author">${escapeHtml(msg.author || 'Unknown')}</span><div class="bubble-row"><span class="message${padClass}">${imgs}<span class="message-text">${renderParts(msg.parts, msg.text)}</span></span></div></div>`;
+  const contentHtml = `<div class="content"><span class="author">${escapeHtml(msg.author || 'Unknown')}</span><div class="bubble-row"><span class="message${pad}">${imgs}<span class="message-text">${renderParts(msg.parts, msg.text)}</span></span></div></div>`;
   item.innerHTML = config.avatarSide === 'right' ? `${contentHtml}${avatarHtml}` : `${avatarHtml}${contentHtml}`;
   if (config.avatarSide === 'right') item.classList.add('avatar-right');
   const author = item.querySelector('.author');
@@ -81,17 +80,11 @@ async function init() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Preset gagal dimuat.');
       config = normalizeConfig(data.config || {});
-    } catch (error) {
-      setStatus(error.message || 'Preset gagal dimuat.');
-      return;
-    }
+    } catch (error) { setStatus(error.message || 'Preset gagal dimuat.'); return; }
   }
   applyGlobalConfig();
   const videoId = config.videoId || params.get('videoId');
-  if (!videoId) {
-    setStatus('Video ID tidak ada. Generate link dari halaman utama.');
-    return;
-  }
+  if (!videoId) { setStatus('Video ID tidak ada. Generate link dari halaman utama.'); return; }
   const socket = io();
   socket.emit('join', { videoId });
   socket.on('status', (data) => {

@@ -5,7 +5,7 @@ window.LiveChatDecorations = (() => {
     return `<div class="decor-item" data-index="${index}">
       <button class="remove-decor" type="button" aria-label="Hapus dekorasi">×</button>
       <label>URL Gambar Bubble ${index}<input data-field="image" type="url" placeholder="https://.../stiker.png"></label>
-      <label>Upload Gambar Bubble ${index} dari Device<input data-field="upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"></label>
+      <label>Upload Gambar Bubble ${index} dari Device<input data-field="upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp"></label>
       <div class="grid two">
         <label>Tampilkan Gambar Bubble<select data-field="show"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
         <label>Posisi Gambar Bubble<select data-field="position"><option value="inside-bottom-left">Kiri Bawah di Dalam Pesan</option><option value="inside-bottom-right">Kanan Bawah di Dalam Pesan</option><option value="left">Kiri Pesan</option><option value="right">Kanan Pesan</option><option value="top-right">Pojok Kanan Atas</option><option value="bottom-right">Pojok Kanan Bawah</option><option value="bottom-left">Pojok Kiri Bawah</option><option value="top-left">Pojok Kiri Atas</option></select></label>

@@ -25,6 +25,9 @@
         <label for="presetNameInput">Nama Preset
           <input id="presetNameInput" type="text" placeholder="Contoh: Overlay Biru Keren" maxlength="80" autocomplete="off">
         </label>
+        <label for="presetSlugInput">Custom Slug (opsional, untuk link pendek)
+          <input id="presetSlugInput" type="text" placeholder="contoh: kobo-overlay" maxlength="40" autocomplete="off">
+        </label>
         <div id="presetNameError" class="preset-name-error"></div>
         <div class="actions">
           <button id="presetNameCancelBtn" type="button" class="btn-ghost">Batal</button>
@@ -51,6 +54,19 @@
         <label>Link Live YouTube
           <input id="youtubeUrl" type="text" placeholder="www.youtube.com/live_chat?is_popout=1&v=VIDEO_ID" required>
         </label>
+
+        <!-- Theme Presets -->
+        <div class="theme-presets-section">
+          <h3>Tema Warna</h3>
+          <div id="themePresetButtons" class="theme-buttons"></div>
+        </div>
+
+        <!-- Size Presets -->
+        <div class="theme-presets-section">
+          <h3>Ukuran Cepat</h3>
+          <div id="sizePresetButtons" class="theme-buttons"></div>
+        </div>
+
         <div class="grid two"> 
           <label>Font
             <select id="fontFamily">
@@ -65,8 +81,29 @@
           <label>Posisi Avatar
             <select id="avatarSide"><option value="left">Kiri</option><option value="right">Kanan</option></select>
           </label>
-          <label>Geser Avatar (offset)
+          <label>Geser Avatar (offset) <span class="range-value" data-for="avatarOffset"></span>
             <input id="avatarOffset" type="range" min="-120" max="120" value="0">
+          </label>
+        </div>
+        <div class="grid two">
+          <label>Posisi Chat
+            <select id="chatPosition">
+              <option value="bottom-left">Kiri Bawah</option>
+              <option value="bottom-right">Kanan Bawah</option>
+              <option value="bottom-center">Tengah Bawah</option>
+              <option value="top-left">Kiri Atas</option>
+              <option value="top-right">Kanan Atas</option>
+            </select>
+          </label>
+          <label>Animasi Masuk
+            <select id="animationStyle">
+              <option value="pop">Pop</option>
+              <option value="slide-up">Slide Up</option>
+              <option value="fade">Fade</option>
+              <option value="bounce">Bounce</option>
+              <option value="zoom">Zoom</option>
+              <option value="none">Tanpa Animasi</option>
+            </select>
           </label>
         </div>
         <div class="grid four">
@@ -82,21 +119,22 @@
           <label>Border Pesan <input id="borderColor" type="color" value="#525ceb"></label>
         </div>
         <div class="grid two">
-          <label>Ukuran Nama <input id="nameSize" type="range" min="14" max="34" value="20"></label>
-          <label>Ukuran Pesan <input id="messageSize" type="range" min="14" max="38" value="24"></label>
-          <label>Radius Bubble <input id="radius" type="range" min="0" max="36" value="19"></label>
-          <label>Opacity Pesan <input id="opacity" type="range" min="35" max="100" value="90"></label>
+          <label>Ukuran Nama <span class="range-value" data-for="nameSize"></span><input id="nameSize" type="range" min="14" max="34" value="20"></label>
+          <label>Ukuran Pesan <span class="range-value" data-for="messageSize"></span><input id="messageSize" type="range" min="14" max="38" value="24"></label>
+          <label>Radius Bubble <span class="range-value" data-for="radius"></span><input id="radius" type="range" min="0" max="36" value="19"></label>
+          <label>Opacity Pesan <span class="range-value" data-for="opacity"></span><input id="opacity" type="range" min="35" max="100" value="90"></label>
         </div>
         <div class="grid two">
-          <label>Lebar Max Bubble (px) <input id="bubbleMaxWidth" type="range" min="200" max="2000" value="760"></label>
-          <label>Lebar Area Chat (%) <input id="chatWidth" type="range" min="20" max="160" value="78"></label>
-          <label>Tinggi Area Chat (%) <input id="chatHeight" type="range" min="20" max="160" value="100"></label>
+          <label>Lebar Max Bubble (px) <span class="range-value" data-for="bubbleMaxWidth"></span><input id="bubbleMaxWidth" type="range" min="200" max="2000" value="760"></label>
+          <label>Lebar Area Chat (%) <span class="range-value" data-for="chatWidth"></span><input id="chatWidth" type="range" min="20" max="160" value="78"></label>
+          <label>Tinggi Area Chat (%) <span class="range-value" data-for="chatHeight"></span><input id="chatHeight" type="range" min="20" max="160" value="100"></label>
+          <label>Opacity Background Bubble <span class="range-value" data-for="bubbleBgOpacity"></span><input id="bubbleBgOpacity" type="range" min="0" max="100" value="100"></label>
         </div>
         <label>URL Gambar Background Bubble Chat
           <input id="bubbleBgImage" type="url" placeholder="https://.../background-bubble.png">
         </label>
         <label>Upload Background Bubble dari Device
-          <input id="bubbleBgUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+          <input id="bubbleBgUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
         </label>
         <div class="grid two">
           <label>Ukuran Background Bubble
@@ -105,33 +143,13 @@
           <label>Posisi Background Bubble
             <select id="bubbleBgPosition"><option value="center">Center</option><option value="left bottom">Kiri Bawah</option><option value="right bottom">Kanan Bawah</option><option value="left top">Kiri Atas</option><option value="right top">Kanan Atas</option></select>
           </label>
-          <label>Opacity Background Bubble <input id="bubbleBgOpacity" type="range" min="0" max="100" value="100"></label>
         </div>
 
         <div class="bubble-decor-header">
           <h3>Gambar Dekorasi Bubble</h3>
           <button id="addBubbleDecorBtn" type="button">+ Tambah Gambar</button>
         </div>
-        <div id="bubbleDecorList" class="decor-list">
-          <div class="decor-item" data-index="1">
-            <label>URL Gambar Bubble 1
-              <input id="bubbleImage" type="url" placeholder="https://.../stiker.png">
-            </label>
-            <label>Upload Gambar Bubble 1 dari Device
-              <input id="bubbleUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
-            </label>
-            <div class="grid two">
-              <label>Tampilkan Gambar Bubble
-                <select id="showBubbleImage"><option value="1">Ya</option><option value="0">Tidak</option></select>
-              </label>
-              <label>Posisi Gambar Bubble
-                <select id="bubbleImagePosition"><option value="inside-bottom-left">Kiri Bawah di Dalam Pesan</option><option value="inside-bottom-right">Kanan Bawah di Dalam Pesan</option><option value="left">Kiri Pesan</option><option value="right">Kanan Pesan</option><option value="top-right">Pojok Kanan Atas</option><option value="bottom-right">Pojok Kanan Bawah</option><option value="bottom-left">Pojok Kiri Bawah</option><option value="top-left">Pojok Kiri Atas</option></select>
-              </label>
-              <label>Ukuran Gambar Bubble <input id="bubbleImageSize" type="range" min="20" max="160" value="46"></label>
-              <label>Opacity Gambar Bubble <input id="bubbleImageOpacity" type="range" min="20" max="100" value="100"></label>
-            </div>
-          </div>
-        </div>
+        <div id="bubbleDecorList" class="decor-list"></div>
       </form>
 
       <aside class="panel preview">
