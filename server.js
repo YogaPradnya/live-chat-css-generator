@@ -73,6 +73,64 @@ const upload = multer({
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+const PRESET_CONFIG_FIELDS = new Set([
+  'youtubeUrl', 'videoId', 'fontFamily', 'showAvatar', 'avatarSide', 'avatarOffset',
+  'ownerColor', 'moderatorColor', 'memberColor', 'userColor', 'messageColor', 'messageBg',
+  'nameBg', 'borderColor', 'nameSize', 'messageSize', 'radius', 'opacity',
+  'bubbleMaxWidth', 'chatWidth', 'chatHeight', 'bubbleBgImage', 'bubbleBgSize',
+  'bubbleBgPosition', 'bubbleBgOpacity', 'bubbleDecorations',
+]);
+const COLOR_CONFIG_FIELDS = new Set(['ownerColor', 'moderatorColor', 'memberColor', 'userColor', 'messageColor', 'messageBg', 'nameBg', 'borderColor']);
+const NUMBER_CONFIG_LIMITS = {
+  avatarOffset: [-120, 120], nameSize: [14, 34], messageSize: [14, 38], radius: [0, 36],
+  opacity: [35, 100], bubbleMaxWidth: [200, 2000], chatWidth: [20, 160], chatHeight: [20, 160], bubbleBgOpacity: [0, 100],
+};
+
+function presetUrl(id) { return `/overlay.html?preset=${encodeURIComponent(id)}`; }
+function shortPresetUrl(id) { return `/o/${encodeURIComponent(id)}`; }
+function sanitizePresetId(value) { return String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32); }
+function normalizePresetName(value) {
+  const name = String(value || 'Overlay Preset').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 80);
+  return name || 'Overlay Preset';
+}
+function clampStringNumber(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return undefined;
+  return String(Math.min(max, Math.max(min, number)));
+}
+function normalizePresetConfig(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const config = {};
+  for (const [key, rawValue] of Object.entries(input)) {
+    if (!PRESET_CONFIG_FIELDS.has(key)) continue;
+    if (key === 'bubbleDecorations') {
+      const decorations = Array.isArray(rawValue) ? rawValue : [];
+      config.bubbleDecorations = decorations.slice(0, 8).map((decor) => ({
+        image: String(decor?.image || '').trim().slice(0, 1200),
+        show: decor?.show === '0' ? '0' : '1',
+        position: String(decor?.position || 'inside-bottom-left').replace(/[^a-z-]/g, '').slice(0, 40) || 'inside-bottom-left',
+        size: clampStringNumber(decor?.size, 20, 160) || '46',
+        opacity: clampStringNumber(decor?.opacity, 0, 100) || '100',
+      })).filter((decor) => decor.image);
+      continue;
+    }
+    if (COLOR_CONFIG_FIELDS.has(key)) {
+      const color = String(rawValue || '').trim();
+      if (/^#[0-9a-f]{6}$/i.test(color)) config[key] = color;
+      continue;
+    }
+    if (NUMBER_CONFIG_LIMITS[key]) {
+      const [min, max] = NUMBER_CONFIG_LIMITS[key];
+      const value = clampStringNumber(rawValue, min, max);
+      if (value !== undefined) config[key] = value;
+      continue;
+    }
+    config[key] = String(rawValue ?? '').trim().slice(0, 1200);
+  }
+  if (config.videoId && !/^[\w-]{11}$/.test(config.videoId)) return null;
+  return config;
+}
+
 app.get('/api/users/check/:username', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
   const username = String(req.params.username || '').trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '').slice(0, 32);
@@ -97,11 +155,13 @@ app.post('/api/users/login', async (req, res) => {
 
 app.get('/api/users/:id/presets', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const isPublic = req.params.id === 'public';
+  const userId = sanitizePresetId(req.params.id);
+  if (!userId) return res.status(400).json({ error: 'User ID tidak valid.' });
+  const isPublic = userId === 'public';
   const result = await db.execute(isPublic
     ? { sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets ORDER BY updated_at DESC LIMIT 100', args: [] }
-    : { sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets WHERE user_id = ? ORDER BY updated_at DESC LIMIT 50', args: [req.params.id] });
-  res.json({ presets: result.rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at, url: `/overlay.html?preset=${row.id}` })) });
+    : { sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets WHERE user_id = ? ORDER BY updated_at DESC LIMIT 50', args: [userId] });
+  res.json({ presets: result.rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at, url: presetUrl(row.id), shortUrl: shortPresetUrl(row.id) })) });
 });
 
 app.post('/api/upload', upload.single('image'), async (req, res) => {
@@ -115,6 +175,7 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
     fs.unlink(req.file.path, () => {});
     res.json({ url: result.secure_url, publicId: result.public_id, storage: 'cloudinary' });
   } catch (error) {
+    fs.unlink(req.file.path, () => {});
     res.status(500).json({ error: error.message || 'Upload Cloudinary gagal.' });
   }
 });
@@ -122,10 +183,10 @@ app.post('/api/upload', upload.single('image'), async (req, res) => {
 app.post('/api/presets', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi. Isi TURSO_DATABASE_URL dan TURSO_AUTH_TOKEN di .env.' });
   const id = nanoid(10);
-  const name = String(req.body?.name || 'Overlay Preset').slice(0, 80);
-  const config = req.body?.config;
-  if (!config || typeof config !== 'object') return res.status(400).json({ error: 'Config preset tidak valid.' });
-  let userId = String(req.body?.userId || 'public').trim() || 'public';
+  const name = normalizePresetName(req.body?.name);
+  const config = normalizePresetConfig(req.body?.config);
+  if (!config) return res.status(400).json({ error: 'Config preset tidak valid.' });
+  let userId = sanitizePresetId(req.body?.userId || 'public') || 'public';
   if (userId === 'public') {
     await db.execute({
       sql: 'INSERT OR IGNORE INTO users (id, username, display_name) VALUES (?, ?, ?)',
@@ -139,33 +200,39 @@ app.post('/api/presets', async (req, res) => {
     sql: 'INSERT INTO overlay_presets (id, user_id, name, config_json) VALUES (?, ?, ?, ?)',
     args: [id, userId, name, JSON.stringify(config)],
   });
-  res.json({ id, name, url: `/overlay.html?preset=${id}` });
+  res.json({ id, name, url: presetUrl(id), shortUrl: shortPresetUrl(id) });
 });
 
 app.get('/api/presets/:id', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const result = await db.execute({ sql: 'SELECT id, name, config_json, created_at, updated_at FROM overlay_presets WHERE id = ?', args: [req.params.id] });
+  const presetId = sanitizePresetId(req.params.id);
+  if (!presetId) return res.status(400).json({ error: 'Preset ID tidak valid.' });
+  const result = await db.execute({ sql: 'SELECT id, name, config_json, created_at, updated_at FROM overlay_presets WHERE id = ?', args: [presetId] });
   const row = result.rows[0];
   if (!row) return res.status(404).json({ error: 'Preset tidak ditemukan.' });
-  res.json({ id: row.id, name: row.name, config: JSON.parse(row.config_json), createdAt: row.created_at, updatedAt: row.updated_at });
+  res.json({ id: row.id, name: row.name, config: JSON.parse(row.config_json), createdAt: row.created_at, updatedAt: row.updated_at, url: presetUrl(row.id), shortUrl: shortPresetUrl(row.id) });
 });
 
 app.put('/api/presets/:id', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const config = req.body?.config;
-  if (!config || typeof config !== 'object') return res.status(400).json({ error: 'Config preset tidak valid.' });
-  const name = String(req.body?.name || 'Overlay Preset').slice(0, 80);
+  const presetId = sanitizePresetId(req.params.id);
+  if (!presetId) return res.status(400).json({ error: 'Preset ID tidak valid.' });
+  const config = normalizePresetConfig(req.body?.config);
+  if (!config) return res.status(400).json({ error: 'Config preset tidak valid.' });
+  const name = normalizePresetName(req.body?.name);
   const result = await db.execute({
     sql: 'UPDATE overlay_presets SET name = ?, config_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-    args: [name, JSON.stringify(config), req.params.id],
+    args: [name, JSON.stringify(config), presetId],
   });
   if (!result.rowsAffected) return res.status(404).json({ error: 'Preset tidak ditemukan.' });
-  res.json({ id: req.params.id, name, url: `/overlay.html?preset=${req.params.id}` });
+  res.json({ id: presetId, name, url: presetUrl(presetId), shortUrl: shortPresetUrl(presetId) });
 });
 
 app.delete('/api/presets/:id', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
-  const result = await db.execute({ sql: 'DELETE FROM overlay_presets WHERE id = ?', args: [req.params.id] });
+  const presetId = sanitizePresetId(req.params.id);
+  if (!presetId) return res.status(400).json({ error: 'Preset ID tidak valid.' });
+  const result = await db.execute({ sql: 'DELETE FROM overlay_presets WHERE id = ?', args: [presetId] });
   if (!result.rowsAffected) return res.status(404).json({ error: 'Preset tidak ditemukan.' });
   res.json({ ok: true });
 });
@@ -173,7 +240,13 @@ app.delete('/api/presets/:id', async (req, res) => {
 app.get('/api/presets', async (req, res) => {
   if (!db) return res.status(503).json({ error: 'Turso belum dikonfigurasi.' });
   const result = await db.execute({ sql: 'SELECT id, name, created_at, updated_at FROM overlay_presets ORDER BY updated_at DESC LIMIT 100', args: [] });
-  res.json({ presets: result.rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at, url: '/overlay.html?preset=' + row.id })) });
+  res.json({ presets: result.rows.map(row => ({ id: row.id, name: row.name, createdAt: row.created_at, updatedAt: row.updated_at, url: presetUrl(row.id), shortUrl: shortPresetUrl(row.id) })) });
+});
+
+app.get('/o/:id', (req, res) => {
+  const presetId = sanitizePresetId(req.params.id);
+  if (!presetId) return res.status(400).send('Preset ID tidak valid.');
+  res.redirect(302, presetUrl(presetId));
 });
 
 

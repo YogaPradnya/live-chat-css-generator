@@ -9,6 +9,8 @@ body {
 
 body {
     font-family: Imprima, Arial, sans-serif;
+    --glass-line: rgba(255, 255, 255, .72);
+    --soft-shadow: 0 16px 34px rgba(10, 18, 40, .18);
 }
 
 .chat-list {
@@ -18,11 +20,11 @@ body {
     bottom: 0;
     width: var(--chat-width, 78vw);
     max-height: var(--chat-height, 100vh);
-    padding: 20px;
+    padding: 22px;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: 10px;
     overflow: hidden;
 }
 
@@ -31,16 +33,29 @@ body {
     gap: 12px;
     align-items: flex-start;
     max-width: var(--bubble-max-width, 760px);
-    animation: scaleIn .28s ease-out both;
+    filter: drop-shadow(0 12px 18px rgba(0, 0, 0, .12));
+    animation: chatPop .36s cubic-bezier(.18, .9, .22, 1.18) both;
+    transform-origin: left bottom;
+}
+
+.chat-item.avatar-right {
+    transform-origin: right bottom;
 }
 
 .avatar {
-    width: 46px;
-    height: 46px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     object-fit: cover;
-    border: 2px solid rgba(255, 255, 255, .86);
-    background: rgba(255, 255, 255, .4);
+    border: 2px solid var(--glass-line);
+    background: linear-gradient(135deg, rgba(255,255,255,.72), rgba(255,255,255,.28));
+    box-shadow: var(--soft-shadow);
+    transform: translateX(var(--avatar-offset, 0px));
+    flex: 0 0 auto;
+}
+
+.avatar-right .avatar {
+    transform: translateX(calc(-1 * var(--avatar-offset, 0px)));
 }
 
 .no-avatar .avatar {
@@ -51,7 +66,6 @@ body {
     position: relative;
     min-width: 0;
     display: grid;
-    gap: 0;
 }
 
 .author {
@@ -65,12 +79,13 @@ body {
     margin-left: 18px;
     padding: 9px 18px;
     border-radius: 18px 18px 0 0;
-    border: 2px solid rgba(255, 255, 255, .92);
+    border: 2px solid var(--glass-line);
     border-bottom: 0;
     font-family: 'Changa One', cursive;
     line-height: 1 !important;
-    transform: none;
     white-space: nowrap;
+    box-shadow: 0 10px 20px rgba(0, 0, 0, .14), inset 0 1px 0 rgba(255, 255, 255, .35);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, .18);
 }
 
 .bubble-row {
@@ -90,6 +105,8 @@ body {
     word-break: break-word;
     overflow: visible;
     background-repeat: no-repeat;
+    box-shadow: var(--soft-shadow), inset 0 1px 0 rgba(255, 255, 255, .24);
+    backdrop-filter: blur(6px);
 }
 
 .message.pad-left {
@@ -131,49 +148,17 @@ body {
     background: transparent !important;
     z-index: 3;
     position: absolute;
+    filter: drop-shadow(0 10px 12px rgba(0, 0, 0, .2));
 }
 
-.bubble-img-inside-bottom-left {
-    left: 10px;
-    bottom: 6px;
-}
-
-.bubble-img-inside-bottom-right {
-    right: -24px;
-    bottom: -8px;
-}
-
-.bubble-img-top-right {
-    right: -18px;
-    top: -18px;
-}
-
-.bubble-img-bottom-right {
-    right: -18px;
-    bottom: -18px;
-}
-
-.bubble-img-bottom-left {
-    left: -18px;
-    bottom: -18px;
-}
-
-.bubble-img-top-left {
-    left: -18px;
-    top: -18px;
-}
-
-.bubble-img-left {
-    left: -58px;
-    top: 50%;
-    transform: translateY(-50%);
-}
-
-.bubble-img-right {
-    right: -58px;
-    top: 50%;
-    transform: translateY(-50%);
-}
+.bubble-img-inside-bottom-left { left: 10px; bottom: 6px; }
+.bubble-img-inside-bottom-right { right: -24px; bottom: -8px; }
+.bubble-img-top-right { right: -18px; top: -18px; }
+.bubble-img-bottom-right { right: -18px; bottom: -18px; }
+.bubble-img-bottom-left { left: -18px; bottom: -18px; }
+.bubble-img-top-left { left: -18px; top: -18px; }
+.bubble-img-left { left: -58px; top: 50%; transform: translateY(-50%); }
+.bubble-img-right { right: -58px; top: 50%; transform: translateY(-50%); }
 
 .emoji {
     height: 1.35em;
@@ -192,6 +177,7 @@ body {
     color: #fff;
     font: 600 13px Inter, Arial;
     opacity: .85;
+    backdrop-filter: blur(10px);
 }
 
 .status.hide {
@@ -202,14 +188,20 @@ body {
     display: none;
 }
 
-@keyframes scaleIn {
+@keyframes chatPop {
     0% {
         opacity: 0;
-        transform: scale(0);
+        transform: translateY(18px) scale(.72);
+        filter: blur(4px) drop-shadow(0 0 0 rgba(0, 0, 0, 0));
     }
-
+    65% {
+        opacity: 1;
+        transform: translateY(-2px) scale(1.03);
+        filter: blur(0) drop-shadow(0 12px 18px rgba(0, 0, 0, .12));
+    }
     100% {
         opacity: 1;
-        transform: scale(1);
+        transform: translateY(0) scale(1);
+        filter: blur(0) drop-shadow(0 12px 18px rgba(0, 0, 0, .12));
     }
 }
