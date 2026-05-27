@@ -83,25 +83,79 @@ function toPayload(comment) {
     superchat: comment.superchat || null,
   };
 }
+const crypto = require('crypto');
 const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
 ];
 let uaIndex = 0;
-function getYoutubeHeaders() {
+function pickUserAgent() {
   uaIndex = (uaIndex + 1) % USER_AGENTS.length;
+  return USER_AGENTS[uaIndex];
+}
+
+function getSapisidHash(sapisid, origin = 'https://www.youtube.com') {
+  const now = Math.floor(Date.now() / 1000);
+  const input = `${now} ${sapisid} ${origin}`;
+  const hash = crypto.createHash('sha1').update(input).digest('hex');
+  return `SAPISIDHASH ${now}_${hash}`;
+}
+
+function extractSapisid(cookieStr) {
+  if (!cookieStr) return '';
+  const match = cookieStr.match(/(?:^|;\s*)SAPISID=([^;]+)/);
+  if (match) return match[1];
+  const match3p = cookieStr.match(/(?:^|;\s*)__Secure-3PAPISID=([^;]+)/);
+  return match3p ? match3p[1] : '';
+}
+
+function getPageHeaders(ua) {
   const headers = {
-    'user-agent': USER_AGENTS[uaIndex],
+    'user-agent': ua,
     'accept-language': 'en-US,en;q=0.9,id;q=0.8',
-    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     'cache-control': 'no-cache',
+    'sec-ch-ua': '"Chromium";v="137", "Not/A)Brand";v="24", "Google Chrome";v="137"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'none',
+    'sec-fetch-user': '?1',
+    'upgrade-insecure-requests': '1',
   };
   if (process.env.YOUTUBE_COOKIE) headers['cookie'] = process.env.YOUTUBE_COOKIE;
   return headers;
 }
+
+function getApiHeaders(session) {
+  const headers = {
+    'user-agent': session.userAgent,
+    'accept': '*/*',
+    'accept-language': 'en-US,en;q=0.9,id;q=0.8',
+    'content-type': 'application/json',
+    'origin': 'https://www.youtube.com',
+    'referer': `https://www.youtube.com/live_chat?v=${session.videoId}`,
+    'x-youtube-client-name': '1',
+    'x-youtube-client-version': session.clientVersion,
+    'sec-ch-ua': '"Chromium";v="137", "Not/A)Brand";v="24", "Google Chrome";v="137"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'same-origin',
+    'sec-fetch-site': 'same-origin',
+  };
+  if (session.visitorData) headers['x-goog-visitor-id'] = session.visitorData;
+  if (process.env.YOUTUBE_COOKIE) {
+    headers['cookie'] = process.env.YOUTUBE_COOKIE;
+    const sapisid = extractSapisid(process.env.YOUTUBE_COOKIE);
+    if (sapisid) headers['authorization'] = getSapisidHash(sapisid);
+  }
+  return headers;
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function extractFirst(html, patterns) {
@@ -122,9 +176,9 @@ function extractChatContinuation(html) {
   ]);
 }
 
-async function fetchYoutubeHtml(videoId, retries = 4) {
+async function fetchYoutubeHtml(videoId, ua, retries = 4) {
+  const headers = getPageHeaders(ua);
   for (let attempt = 1; attempt <= retries; attempt++) {
-    const headers = getYoutubeHeaders();
     try {
       const response = await fetch(`https://www.youtube.com/live_chat?v=${encodeURIComponent(videoId)}`, { headers });
       if (response.status === 429) {
@@ -144,35 +198,51 @@ async function fetchYoutubeHtml(videoId, retries = 4) {
   }
 }
 
-async function createLiveChatSession(videoId) {
-  const html = await fetchYoutubeHtml(videoId);
+async function createLiveChatSession(videoId, existingUa) {
+  const ua = existingUa || pickUserAgent();
+  const html = await fetchYoutubeHtml(videoId, ua);
   const key = extractFirst(html, [/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/]);
   const clientName = extractFirst(html, [/"clientName"\s*:\s*"([^"]+)"/]) || 'WEB';
   const clientVersion = extractFirst(html, [/"clientVersion"\s*:\s*"([^"]+)"/]);
+  const visitorData = extractFirst(html, [/"visitorData"\s*:\s*"([^"]+)"/]);
   const continuation = extractChatContinuation(html);
   if (!key || !clientVersion) throw new Error('YouTube config tidak ditemukan.');
   if (!continuation) {
     if (/LIVE_STREAM_OFFLINE/.test(html)) throw new Error('Live chat belum tersedia / stream offline.');
     throw new Error('Continuation live chat tidak ditemukan.');
   }
-  return { key, clientName, clientVersion, continuation, prevTime: Date.now() };
+  return { key, clientName, clientVersion, visitorData, continuation, userAgent: ua, videoId, prevTime: Date.now() };
 }
 
 async function fetchLiveChat(room) {
   const session = room.session;
+  const headers = getApiHeaders(session);
+  const body = {
+    context: {
+      client: {
+        clientName: session.clientName,
+        clientVersion: session.clientVersion,
+        ...(session.visitorData ? { visitorData: session.visitorData } : {}),
+      },
+    },
+    continuation: session.continuation,
+  };
   const response = await fetch(`https://www.youtube.com/youtubei/v1/live_chat/get_live_chat?key=${encodeURIComponent(session.key)}`, {
     method: 'POST',
-    headers: { ...getYoutubeHeaders(), 'content-type': 'application/json' },
-    body: JSON.stringify({
-      context: { client: { clientName: session.clientName, clientVersion: session.clientVersion } },
-      continuation: session.continuation,
-    }),
+    headers,
+    body: JSON.stringify(body),
   });
   if (response.status === 429) {
     console.warn(`[YouTube] Polling 429 untuk ${room.videoId}, tunggu 15 detik...`);
     await sleep(15000);
-    room.session = await createLiveChatSession(room.videoId);
+    room.session = await createLiveChatSession(room.videoId, session.userAgent);
     return 2000;
+  }
+  if (response.status === 503) {
+    console.warn(`[YouTube] Polling 503 untuk ${room.videoId}, tunggu 8 detik lalu refresh session...`);
+    await sleep(8000);
+    room.session = await createLiveChatSession(room.videoId, session.userAgent);
+    return 3000;
   }
   if (!response.ok) throw new Error(`Polling chat gagal (${response.status}).`);
   const data = await response.json();
@@ -202,7 +272,7 @@ function scheduleRoomPoll(room, delay = 1000) {
       scheduleRoomPoll(room, Math.max(1000, Number(nextDelay) || 1000));
     } catch (error) {
       const msg = error?.message || String(error);
-      const isRetryable = /fetch|network|econnreset|etimedout|socket/i.test(msg);
+      const isRetryable = /fetch|network|econnreset|etimedout|socket|503|502|service unavailable/i.test(msg);
       if (isRetryable && room.retryCount < 5) {
         room.retryCount = (room.retryCount || 0) + 1;
         const backoff = Math.min(3000 * room.retryCount, 20000);
