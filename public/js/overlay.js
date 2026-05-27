@@ -91,6 +91,9 @@ async function init() {
     if (data.status === 'connected') setStatus('Connected', true);
     else setStatus(data.message || data.status || 'Connecting...');
   });
+  socket.on('history', (messages) => {
+    if (Array.isArray(messages)) messages.forEach(addMessage);
+  });
   socket.on('chat', addMessage);
 }
 

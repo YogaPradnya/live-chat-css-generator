@@ -211,7 +211,7 @@ async function createLiveChatSession(videoId, existingUa) {
     if (/LIVE_STREAM_OFFLINE/.test(html)) throw new Error('Live chat belum tersedia / stream offline.');
     throw new Error('Continuation live chat tidak ditemukan.');
   }
-  return { key, clientName, clientVersion, visitorData, continuation, userAgent: ua, videoId, prevTime: Date.now() };
+  return { key, clientName, clientVersion, visitorData, continuation, userAgent: ua, videoId, prevTime: 0 };
 }
 
 async function fetchLiveChat(room) {
@@ -259,7 +259,13 @@ async function fetchLiveChat(room) {
   const items = (live.actions || [])
     .filter((action) => { const r = actionToRenderer(action); return r && usecToTime(r.timestampUsec) > session.prevTime; })
     .map((action) => parseData(action)).filter(Boolean);
-  items.forEach((item) => io.to(room.videoId).emit('chat', toPayload(item)));
+  const payloads = items.map(toPayload);
+  payloads.forEach((p) => {
+    if (!room.chatBuffer) room.chatBuffer = [];
+    room.chatBuffer.push(p);
+    if (room.chatBuffer.length > 50) room.chatBuffer.shift();
+    io.to(room.videoId).emit('chat', p);
+  });
   if (items.length) session.prevTime = items[items.length - 1].timestamp;
   return next?.timedContinuationData?.timeoutMs || next?.invalidationContinuationData?.timeoutMs || 1000;
 }
@@ -289,7 +295,7 @@ function scheduleRoomPoll(room, delay = 1000) {
 
 function startRoom(videoId) {
   if (rooms.has(videoId)) return rooms.get(videoId);
-  const room = { videoId, clients: 0, session: null, status: 'starting', lastError: '', cleanupTimer: null, pollTimer: null };
+  const room = { videoId, clients: 0, session: null, status: 'starting', lastError: '', cleanupTimer: null, pollTimer: null, chatBuffer: [] };
   rooms.set(videoId, room);
   createLiveChatSession(videoId)
     .then((session) => {
@@ -318,6 +324,9 @@ io.on('connection', (socket) => {
     room.clients += 1;
     if (room.cleanupTimer) clearTimeout(room.cleanupTimer);
     socket.data.videoId = id;
+    if (room.chatBuffer && room.chatBuffer.length) {
+      socket.emit('history', room.chatBuffer);
+    }
     socket.emit('status', { status: room.status, videoId: id, message: room.lastError });
   });
   socket.on('disconnect', () => {
